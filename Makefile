@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-REGISTRY_NAME=quay.io/k8scsi
+REGISTRY_NAME=quay.io/openstorage
 IMAGE_NAME=csi-provisioner
-IMAGE_VERSION=v1.0-canary
+IMAGE_VERSION=v1.0.1-1.px
 IMAGE_TAG=$(REGISTRY_NAME)/$(IMAGE_NAME):$(IMAGE_VERSION)
 
 REV=$(shell git describe --long --tags --match='v*' --dirty)

@@ -115,7 +115,7 @@ const (
 
 var (
 	provisionerSecretParams = deprecatedSecretParamsMap{
-		name:                         "Provisioner",
+		name: "Provisioner",
 		deprecatedSecretNameKey:      provisionerSecretNameKey,
 		deprecatedSecretNamespaceKey: provisionerSecretNamespaceKey,
 		secretNameKey:                prefixedProvisionerSecretNameKey,
@@ -123,7 +123,7 @@ var (
 	}
 
 	nodePublishSecretParams = deprecatedSecretParamsMap{
-		name:                         "NodePublish",
+		name: "NodePublish",
 		deprecatedSecretNameKey:      nodePublishSecretNameKey,
 		deprecatedSecretNamespaceKey: nodePublishSecretNamespaceKey,
 		secretNameKey:                prefixedNodePublishSecretNameKey,
@@ -131,7 +131,7 @@ var (
 	}
 
 	controllerPublishSecretParams = deprecatedSecretParamsMap{
-		name:                         "ControllerPublish",
+		name: "ControllerPublish",
 		deprecatedSecretNameKey:      controllerPublishSecretNameKey,
 		deprecatedSecretNamespaceKey: controllerPublishSecretNamespaceKey,
 		secretNameKey:                prefixedControllerPublishSecretNameKey,
@@ -139,7 +139,7 @@ var (
 	}
 
 	nodeStageSecretParams = deprecatedSecretParamsMap{
-		name:                         "NodeStage",
+		name: "NodeStage",
 		deprecatedSecretNameKey:      nodeStageSecretNameKey,
 		deprecatedSecretNamespaceKey: nodeStageSecretNamespaceKey,
 		secretNameKey:                prefixedNodeStageSecretNameKey,
@@ -547,7 +547,8 @@ func (p *csiProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 
 	// Resolve provision secret credentials.
 	// No PVC is provided when resolving provision/delete secret names, since the PVC may or may not exist at delete time.
-	provisionerSecretRef, err := getSecretReference(provisionerSecretParams, options.Parameters, pvName, nil)
+	// XXX pass in create
+	provisionerSecretRef, err := getSecretReference(provisionerSecretParams, options.Parameters, pvName, options.PVC)
 	if err != nil {
 		return nil, err
 	}
@@ -647,6 +648,14 @@ func (p *csiProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 				},
 			},
 		},
+	}
+
+	// Save secret pointer from PVC
+	if provisionerSecretRef != nil {
+		pv.Annotations = map[string]string{
+			prefixedProvisionerSecretNameKey:      provisionerSecretRef.Name,
+			prefixedProvisionerSecretNamespaceKey: provisionerSecretRef.Namespace,
+		}
 	}
 
 	if driverState.capabilities.Has(PluginCapability_ACCESSIBILITY_CONSTRAINTS) &&
@@ -768,11 +777,27 @@ func (p *csiProvisioner) Delete(volume *v1.PersistentVolume) error {
 	storageClassName := volume.Spec.StorageClassName
 	if len(storageClassName) != 0 {
 		if storageClass, err := p.client.StorageV1().StorageClasses().Get(storageClassName, metav1.GetOptions{}); err == nil {
-			// Resolve provision secret credentials.
-			// No PVC is provided when resolving provision/delete secret names, since the PVC may or may not exist at delete time.
-			provisionerSecretRef, err := getSecretReference(provisionerSecretParams, storageClass.Parameters, volume.Name, nil)
-			if err != nil {
-				return err
+			var (
+				provisionerSecretRef *v1.SecretReference
+				err                  error
+			)
+			if len(volume.Annotations) > 0 {
+				name, nameOk := volume.Annotations[prefixedProvisionerSecretNameKey]
+				namespace, namespaceOk := volume.Annotations[prefixedProvisionerSecretNamespaceKey]
+				if nameOk && namespaceOk {
+					provisionerSecretRef = &v1.SecretReference{
+						Name:      name,
+						Namespace: namespace,
+					}
+				}
+			}
+			if provisionerSecretRef == nil {
+				// Resolve provision secret credentials.
+				// No PVC is provided when resolving provision/delete secret names, since the PVC may or may not exist at delete time.
+				provisionerSecretRef, err = getSecretReference(provisionerSecretParams, storageClass.Parameters, volume.Name, nil)
+				if err != nil {
+					return err
+				}
 			}
 			credentials, err := getCredentials(p.client, provisionerSecretRef)
 			if err != nil {
