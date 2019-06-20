@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -68,6 +69,12 @@ type secretParamsMap struct {
 }
 
 const (
+	// Openstorage specific parameters
+	osdParameterPrefix            = "csi.openstorage.org/"
+	osdPvcNameKey                 = osdParameterPrefix + "pvc-name"
+	osdPvcNamespaceKey            = osdParameterPrefix + "pvc-namespace"
+	osdPvcAnnotationsAndLabelsKey = osdParameterPrefix + "pvc-annotations-and-labels"
+
 	// CSI Parameters prefixed with csiParameterPrefix are not passed through
 	// to the driver on CreateVolumeRequest calls. Instead they are intended
 	// to used by the CSI external-provisioner and maybe used to populate
@@ -595,6 +602,11 @@ func (p *csiProvisioner) prepareProvision(ctx context.Context, claim *v1.Persist
 			RequiredBytes: int64(volSizeBytes),
 		},
 	}
+	// add pvc name, namespace, annotations and labels in the parameters
+	req.Parameters, err = p.addPVCMetadataParams(req.Parameters, options.PVC)
+	if err != nil {
+		return nil, controller.ProvisioningNoChange, err
+	}
 
 	if claim.Spec.DataSource != nil && (rc.clone || rc.snapshot) {
 		volumeContentSource, err := p.getVolumeContentSource(ctx, claim, sc)
@@ -868,6 +880,27 @@ func (p *csiProvisioner) setCloneFinalizer(ctx context.Context, pvc *v1.Persiste
 	}
 
 	return nil
+}
+
+func (p *csiProvisioner) addPVCMetadataParams(params map[string]string, pvc *v1.PersistentVolumeClaim) (map[string]string, error) {
+	for k, v := range pvc.Annotations {
+		// add all annotations to labels. Annotations take precedence, so we will overwrite
+		// labels with annotations if they have overlapping keys.
+		pvc.Labels[k] = v
+	}
+	labelsEncoded, err := json.Marshal(pvc.Labels)
+	if err != nil {
+		klog.Errorf("Failed to encode PVC labels: %v", err)
+		return nil, err
+	}
+	if len(params) == 0 {
+		params = make(map[string]string)
+	}
+	params[osdPvcNameKey] = pvc.Name
+	params[osdPvcNamespaceKey] = pvc.Namespace
+	params[osdPvcAnnotationsAndLabelsKey] = string(labelsEncoded)
+
+	return params, nil
 }
 
 func (p *csiProvisioner) supportsTopology() bool {
