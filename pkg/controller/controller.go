@@ -63,10 +63,11 @@ type secretParamsMap struct {
 
 const (
 	// Openstorage specific parameters
-	osdParameterPrefix            = "csi.openstorage.org/"
-	osdPvcNameKey                 = osdParameterPrefix + "pvc-name"
-	osdPvcNamespaceKey            = osdParameterPrefix + "pvc-namespace"
-	osdPvcAnnotationsAndLabelsKey = osdParameterPrefix + "pvc-annotations-and-labels"
+	osdParameterPrefix   = "csi.openstorage.org/"
+	osdPvcNameKey        = osdParameterPrefix + "pvc-name"
+	osdPvcNamespaceKey   = osdParameterPrefix + "pvc-namespace"
+	osdPvcAnnotationsKey = osdParameterPrefix + "pvc-annotations"
+	osdPvcLabelsKey      = osdParameterPrefix + "pvc-labels"
 
 	// CSI Parameters prefixed with csiParameterPrefix are not passed through
 	// to the driver on CreateVolumeRequest calls. Instead they are intended
@@ -661,14 +662,14 @@ func (p *csiProvisioner) ProvisionExt(options controller.ProvisionOptions) (*v1.
 }
 
 func (p *csiProvisioner) addPVCMetadataParams(params map[string]string, pvc *v1.PersistentVolumeClaim) (map[string]string, error) {
-	for k, v := range pvc.Annotations {
-		// add all annotations to labels. Annotations take precedence, so we will overwrite
-		// labels with annotations if they have overlapping keys.
-		pvc.Labels[k] = v
-	}
 	labelsEncoded, err := json.Marshal(pvc.Labels)
 	if err != nil {
 		klog.Errorf("Failed to encode PVC labels: %v", err)
+		return nil, err
+	}
+	annotationsEncoded, err := json.Marshal(pvc.Annotations)
+	if err != nil {
+		klog.Errorf("Failed to encode PVC annotations: %v", err)
 		return nil, err
 	}
 	if len(params) == 0 {
@@ -676,7 +677,8 @@ func (p *csiProvisioner) addPVCMetadataParams(params map[string]string, pvc *v1.
 	}
 	params[osdPvcNameKey] = pvc.Name
 	params[osdPvcNamespaceKey] = pvc.Namespace
-	params[osdPvcAnnotationsAndLabelsKey] = string(labelsEncoded)
+	params[osdPvcLabelsKey] = string(labelsEncoded)
+	params[osdPvcAnnotationsKey] = string(annotationsEncoded)
 
 	return params, nil
 }
