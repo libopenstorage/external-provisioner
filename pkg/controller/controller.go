@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -61,6 +62,13 @@ type secretParamsMap struct {
 }
 
 const (
+	// Openstorage specific parameters
+	osdParameterPrefix   = "csi.openstorage.org/"
+	osdPvcNameKey        = osdParameterPrefix + "pvc-name"
+	osdPvcNamespaceKey   = osdParameterPrefix + "pvc-namespace"
+	osdPvcAnnotationsKey = osdParameterPrefix + "pvc-annotations"
+	osdPvcLabelsKey      = osdParameterPrefix + "pvc-labels"
+
 	// CSI Parameters prefixed with csiParameterPrefix are not passed through
 	// to the driver on CreateVolumeRequest calls. Instead they are intended
 	// to used by the CSI external-provisioner and maybe used to populate
@@ -468,6 +476,11 @@ func (p *csiProvisioner) ProvisionExt(options controller.ProvisionOptions) (*v1.
 			RequiredBytes: int64(volSizeBytes),
 		},
 	}
+	// add pvc name, namespace, annotations and labels in the parameters
+	req.Parameters, err = p.addPVCMetadataParams(req.Parameters, options.PVC)
+	if err != nil {
+		return nil, controller.ProvisioningNoChange, err
+	}
 
 	if options.PVC.Spec.DataSource != nil && (rc.clone || rc.snapshot) {
 		volumeContentSource, err := p.getVolumeContentSource(options)
@@ -646,6 +659,28 @@ func (p *csiProvisioner) ProvisionExt(options controller.ProvisionOptions) (*v1.
 
 	klog.V(5).Infof("successfully created PV %+v", pv.Spec.PersistentVolumeSource)
 	return pv, controller.ProvisioningFinished, nil
+}
+
+func (p *csiProvisioner) addPVCMetadataParams(params map[string]string, pvc *v1.PersistentVolumeClaim) (map[string]string, error) {
+	labelsEncoded, err := json.Marshal(pvc.Labels)
+	if err != nil {
+		klog.Errorf("Failed to encode PVC labels: %v", err)
+		return nil, err
+	}
+	annotationsEncoded, err := json.Marshal(pvc.Annotations)
+	if err != nil {
+		klog.Errorf("Failed to encode PVC annotations: %v", err)
+		return nil, err
+	}
+	if len(params) == 0 {
+		params = make(map[string]string)
+	}
+	params[osdPvcNameKey] = pvc.Name
+	params[osdPvcNamespaceKey] = pvc.Namespace
+	params[osdPvcLabelsKey] = string(labelsEncoded)
+	params[osdPvcAnnotationsKey] = string(annotationsEncoded)
+
+	return params, nil
 }
 
 func (p *csiProvisioner) supportsTopology() bool {
