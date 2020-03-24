@@ -869,7 +869,7 @@ func TestProvision(t *testing.T) {
 				},
 			},
 			expectCreateVolDo: func(ctx context.Context, req *csi.CreateVolumeRequest) {
-				if len(req.Parameters) != 0 {
+				if _, ok := req.Parameters[prefixedFsTypeKey]; ok {
 					t.Errorf("Parameters should have been stripped")
 				}
 			},
